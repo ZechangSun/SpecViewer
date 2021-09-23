@@ -1,7 +1,7 @@
 # SpecViewer
 A simple visualization tool for astronmers.
 
-## Dependenciences
+## Dependencies
 - Python >= 3.7.4
 - PyQt5 >= 5.15.4
 - pyqtgraph == 0.10.0
