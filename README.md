@@ -1,5 +1,5 @@
 # SpecViewer
-A simple visualization tool for astronmers.
+A simple visualization tool for astronomers.
 
 ## Dependencies
 - Python >= 3.7.4
