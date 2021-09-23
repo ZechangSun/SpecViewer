@@ -1,0 +1,2 @@
+EMISSIONLINES = {"OVI": 1033.82, "LYA": 1215.24, "NV": 1240.81, "CII": 1335.31, "SiIV": 1397.61, "CIV": 1549.48, "HEII": 1640.4, "CIII": 1908.73}
+default_background = "#F8F8FF"
