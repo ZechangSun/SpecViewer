@@ -27,4 +27,3 @@ def load_npz_files(files):
         data.append({"file": file, "wav": spec["wav"], "flux": spec["flux"], "error": spec["err"], "z": float(spec["z"])})
     return data
 
-

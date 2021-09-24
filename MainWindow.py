@@ -1,9 +1,11 @@
 from os import name
-from PyQt5.QtCore import QCoreApplication, right
-from PyQt5.QtWidgets import QAction, QApplication, QCheckBox, QFileDialog, QMainWindow, QPushButton, QVBoxLayout, QWidget, QHBoxLayout, QTextEdit
+from PyQt5.QtCore import QCoreApplication, Qt, right
+from PyQt5.QtGui import QIcon
+from PyQt5.QtWidgets import QAction, QApplication, QCheckBox, QFileDialog, QLabel, QMainWindow, QPushButton, QSlider, QVBoxLayout, QWidget, QHBoxLayout, QTextEdit
 from EmissionLine import EmissionLine
 import pyqtgraph as pg
-import sys
+import numpy as np
+import os
 import defs
 import script
 
@@ -13,6 +15,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         # set title and size
         self.setWindowTitle('SpecViewer')
+        self.setWindowIcon(QIcon(os.path.join("asset", "teleIcon.ico")))
         self.width = 1500
         self.height = int(0.618*self.width)
         self.resize(self.width, self.height)
@@ -50,19 +53,49 @@ class MainWindow(QMainWindow):
 
         # set check box and text edit
         self.checkbox1 = QCheckBox("QSO without BAL?")
+        self.checkbox1.setShortcut("Alt+1")
         self.checkbox2 = QCheckBox("DLA?")
+        self.checkbox2.setShortcut("Alt+2")
         self.checkbox3 = QCheckBox("Associated DLA?")
+        self.checkbox3.setShortcut("Alt+3")
         self.checkbox4 = QCheckBox("Interesting?")
+        self.checkbox4.setShortcut("Alt+4")
         self.buttonWidget = QWidget()
         buttonLayout = QHBoxLayout()
         self.buttonWidget.setLayout(buttonLayout)
         self.textEdit = QTextEdit()
+
+        # set slider
+        self.smoothIndicator = QLabel("Smooth: 1 pixel")
+        self.smoothSlider = QSlider(Qt.Horizontal)
+        self.smoothSlider.setMinimum(1)
+        self.smoothSlider.setMaximum(15)
+        self.smoothSlider.setSingleStep(2)
+        self.smoothSlider.setTickPosition(QSlider.TicksBelow)
+        self.smoothSlider.sliderReleased.connect(self.smooth)
+        self.smoothSlider.valueChanged.connect(self.updateSmoothIndicator)
+
+        self.MINSNR = 0.
+        self.noiseIndicator = QLabel("Drop Pixels with SNR<Inf")
+        self.noiseSlider = QSlider(Qt.Horizontal)
+        self.noiseSlider.setMinimum(0)
+        self.noiseSlider.setMaximum(50)
+        self.noiseSlider.valueChanged.connect(self.noise_clip)
+    
+        # add widget
+        self.label = QLabel("Any Comment?")
+        self.label.setAlignment(Qt.AlignCenter)
         right_layout.addWidget(self.checkbox1)
         right_layout.addWidget(self.checkbox2)
         right_layout.addWidget(self.checkbox3)
         right_layout.addWidget(self.checkbox4)
-        right_layout.addWidget(self.textEdit)
         right_layout.addWidget(self.buttonWidget)
+        right_layout.addWidget(self.smoothIndicator)
+        right_layout.addWidget(self.smoothSlider)
+        right_layout.addWidget(self.noiseIndicator)
+        right_layout.addWidget(self.noiseSlider)
+        right_layout.addWidget(self.label)
+        right_layout.addWidget(self.textEdit)
 
         # add button
         self.backButton = QPushButton("Back")
@@ -113,9 +146,10 @@ class MainWindow(QMainWindow):
         # add EmissionLine
         self.EmissionLines = {}
         for key in defs.EMISSIONLINES:
-            self.EmissionLines[key] = EmissionLine(key, redshift=None, movable=True)
+            self.EmissionLines[key] = EmissionLine(key, redshift=None, movable=True, pen=pg.mkPen(defs.EMISSIONSTYLE), label=key, labelOpts={"movable": True, "color": "k"})
             self.EmissionLines[key].sigDragged.connect(self.updateEmission)
-            self.EmissionLines[key].setToolTip("<b>%s:</b> %.2f Angstorm"%(key, defs.EMISSIONLINES[key]))
+            self.EmissionLines[key].setToolTip("<b>%s:</b> %.2f Angstorm" % (key, defs.EMISSIONLINES[key]))
+            self.EmissionLines[key].label.setColor('w')
             self.topPanel.addItem(self.EmissionLines[key], ignoreBounds=True)
 
     def load_data(self):
@@ -127,16 +161,43 @@ class MainWindow(QMainWindow):
             self.result = [{"File": self.data[i]["file"], "BAL": False, "DLA": False, "Associated DLA": False, "Interesting": False, "comment": "", "z": self.data[i]["z"]} for i in range(len(self.data))]
             self.plot()
 
+    def updateSmoothIndicator(self):
+        self.smoothIndicator.setText("Smooth: %2i pixel"%self.smoothSlider.value())
+
+    def smooth(self):
+        kernel_size = self.smoothSlider.value()
+        kernel = np.ones(kernel_size, dtype=float)/kernel_size
+        flux_smoothed = np.convolve(self.data[self.cursor]["flux"], kernel, mode="same")
+        err_smoothed = np.convolve(self.data[self.cursor]["error"], kernel, mode="same")
+        self.LineElems["TopFlux"].setData(self.data[self.cursor]["wav"], flux_smoothed)
+        self.LineElems["TopErr"].setData(self.data[self.cursor]["wav"], err_smoothed)
+
+    def noise_clip(self):
+        if "SNR" not in self.data[self.cursor]:
+            self.data[self.cursor]["SNR"] = self.data[self.cursor]["flux"]/(self.data[self.cursor]["error"]+1e-30)
+        critical_point = np.percentile(self.data[self.cursor]["SNR"], 100-self.noiseSlider.value())
+        self.noiseIndicator.setText("Drop Pixels with SNR < %2.2f" % critical_point)
+        sig = self.data[self.cursor]["SNR"] < critical_point
+        wav = self.data[self.cursor]["wav"][sig]
+        flux = self.data[self.cursor]["flux"][sig]
+        err = self.data[self.cursor]["error"][sig]
+        self.LineElems["TopFlux"].setData(wav, flux)
+        self.LineElems["TopErr"].setData(wav, err)
+
     def plot(self):
         maxwav, minwav = max(self.data[self.cursor]["wav"]), min(self.data[self.cursor]["wav"])
         fmax, fmin = max(self.data[self.cursor]["flux"]), min(self.data[self.cursor]["flux"])
         self.z = self.data[self.cursor]["z"]
         for key in defs.EMISSIONLINES:
+            self.EmissionLines[key].setVisible(True)
             self.EmissionLines[key].adjust(self.z)
-        self.topPanel.setXRange(0.98*minwav, 1.02*maxwav)
-        self.topPanel.setYRange(0.98*fmin, 1.02*fmax)
-        self.bottomPanel.setXRange(0.98*maxwav, 1.02*minwav)
-        self.bottomPanel.setYRange(0.98*fmin, 1.02*fmax)
+            self.EmissionLines[key].label.setPosition(np.random.uniform(0, 1))
+            self.EmissionLines[key].label.updatePosition()
+            self.EmissionLines[key].label.setColor('k')
+        self.topPanel.setXRange(0.98*minwav, 1.02*maxwav, padding=0)
+        self.topPanel.setYRange(0.98*fmin, 1.02*fmax, padding=0)
+        self.bottomPanel.setXRange(0.98*minwav, 1.02*maxwav, padding=0)
+        self.bottomPanel.setYRange(0.98*fmin, 1.02*fmax, padding=0)
         self.LineElems["TopFlux"].setData(self.data[self.cursor]["wav"], self.data[self.cursor]["flux"])
         self.LineElems["TopErr"].setData(self.data[self.cursor]["wav"], self.data[self.cursor]["error"])
         self.LineElems["BottomFlux"].setData(self.data[self.cursor]["wav"], self.data[self.cursor]["flux"])
@@ -181,6 +242,10 @@ class MainWindow(QMainWindow):
             self.checkbox4.setChecked(self.result[self.cursor]["Interesting"])
             self.textEdit.setPlainText(self.result[self.cursor]["comment"])
             self.plot()
+            self.smoothIndicator.setText("Smooth: %2i pixel" % 1)
+            self.noiseIndicator.setText("Drop Pixels with SNR < Inf")
+            self.noiseSlider.setValue(0)
+            self.smoothSlider.setValue(1)
 
     def lastSpectra(self):
         if len(self.data) > 0:
@@ -198,6 +263,10 @@ class MainWindow(QMainWindow):
             self.checkbox4.setChecked(self.result[self.cursor]["Interesting"])
             self.textEdit.setPlainText(self.result[self.cursor]["comment"])
             self.plot()
+            self.smoothIndicator.setText("Smooth: %2i pixel" % 1)
+            self.noiseIndicator.setText("Drop Pixels with SNR < Inf")
+            self.noiseSlider.setValue(0)
+            self.smoothSlider.setValue(1)
 
     def save_result(self):
         result_file, file_type = QFileDialog.getSaveFileName(self, 'Save Result', filter="CSV File (*.csv)")
