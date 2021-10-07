@@ -1,8 +1,10 @@
 """
-SpectraViewer.py - Useful class and function for astro spectra visualization
-Copyright 2021 Zechang Sun email: sunzc18@mails.tsinghua.edu.cn
+EmissionLine.py - Useful class and function for astro spectra visualization
+Copyright 2021： Zechang Sun
+Email: sunzc18@mails.tsinghua.edu.cn
 """
 import pyqtgraph as pg
+from pyqtgraph.graphicsItems.TextItem import TextItem
 from defs import EMISSIONLINES
 
 
@@ -15,7 +17,7 @@ class EmissionLine(pg.InfiniteLine):
         if self.line not in EMISSIONLINES:
             raise NameError("Can't find %s in the dict %s" % (line, EMISSIONLINES))
         if isinstance(redshift, float):
-            self.setPos(EMISSIONLINES[self.line]*(1+self.redshift))
+            self.setPos(EMISSIONLINES[self.line]["lambda"]*(1+self.redshift))
 
     def adjust(self, redshift, line=None):
         if line is not None and isinstance(line, str):
@@ -28,6 +30,10 @@ class EmissionLine(pg.InfiniteLine):
             self.redshift = redshift
         else:
             raise TypeError("Redshift must be float, found %s" % type(redshift))
-        self.setPos(EMISSIONLINES[self.line]*(1+self.redshift))
-    
-    
+        self.setPos(EMISSIONLINES[self.line]["lambda"]*(1+self.redshift))
+
+    def setLabelVisible(self, v):
+        TextItem.setVisible(self.label, v)
+        if v:
+            self.label.updatePosition()
+

@@ -1,8 +1,13 @@
-from os import name
-from PyQt5.QtCore import QCoreApplication, Qt, right
+"""
+Mainwindow.py - Mainwindow for the GUI.
+Copyright 2021: Zechang Sun
+Email: sunzc18@mails.tsinghua.edu.cn
+"""
+from PyQt5.QtCore import QCoreApplication, Qt, pyqtSignal
 from PyQt5.QtGui import QIcon
-from PyQt5.QtWidgets import QAction, QApplication, QCheckBox, QFileDialog, QLabel, QMainWindow, QPushButton, QSlider, QVBoxLayout, QWidget, QHBoxLayout, QTextEdit
+from PyQt5.QtWidgets import QAction, QCheckBox, QFileDialog, QLabel, QMainWindow, QMessageBox, QPushButton, QSlider, QVBoxLayout, QWidget, QHBoxLayout, QTextEdit
 from EmissionLine import EmissionLine
+from scipy.interpolate import interp1d
 import pyqtgraph as pg
 import numpy as np
 import os
@@ -11,6 +16,10 @@ import script
 
 
 class MainWindow(QMainWindow):
+    
+    # signal detect whether reach the end of the dataset
+    signal = pyqtSignal()
+
     def __init__(self):
         super().__init__()
         # set title and size
@@ -26,11 +35,26 @@ class MainWindow(QMainWindow):
         self.openAction = QAction("Open")
         self.saveAction = QAction("Save")
         self.exitAction = QAction("Exit")
+        self.saveDataProduct = QAction("Save Data Product")
         self.fileMenu.addAction(self.openAction)
         self.fileMenu.addAction(self.saveAction)
+        self.fileMenu.addAction(self.saveDataProduct)
         self.fileMenu.addSeparator()
         self.fileMenu.addAction(self.exitAction)
         self.helpMenu = self.menu.addMenu("Help")
+        self.settingMenu = self.menu.addMenu("Settings")
+        self.enableTopX = QAction("Enable X Movable", checkable=True)
+        self.enableTopX.setChecked(True)
+        self.settingMenu.addAction(self.enableTopX)
+        self.enableTopY = QAction("Enable Y Movable", checkable=True)
+        self.enableTopY.setChecked(False)
+        self.settingMenu.addAction(self.enableTopY)
+        self.displayEmissionLine = QAction("Display Emission Line", checkable=True)
+        self.displayLabel = QAction("Display Emission Label", checkable=True)
+        self.settingMenu.addAction(self.displayEmissionLine)
+        self.settingMenu.addAction(self.displayLabel)
+        self.displayEmissionLine.setChecked(True)
+        self.displayLabel.setChecked(True)
 
         # state  bar setting
         self.statusBar = self.statusBar()
@@ -75,7 +99,6 @@ class MainWindow(QMainWindow):
         self.smoothSlider.sliderReleased.connect(self.smooth)
         self.smoothSlider.valueChanged.connect(self.updateSmoothIndicator)
 
-        self.MINSNR = 0.
         self.noiseIndicator = QLabel("Drop Pixels with SNR<Inf")
         self.noiseSlider = QSlider(Qt.Horizontal)
         self.noiseSlider.setMinimum(0)
@@ -115,6 +138,11 @@ class MainWindow(QMainWindow):
         self.exitAction.triggered.connect(QCoreApplication.quit)
         self.openAction.triggered.connect(self.load_data)
         self.saveAction.triggered.connect(self.save_result)
+        self.saveDataProduct.triggered.connect(self.save_cont)
+        self.enableTopX.triggered.connect(self.enableTopMovable)
+        self.enableTopY.triggered.connect(self.enableTopMovable)
+        self.displayEmissionLine.triggered.connect(self.setEmissionDisplay)
+        self.displayLabel.triggered.connect(self.setLabelDisplay)
 
         # dict store the spectra information
         self.data = []
@@ -128,29 +156,46 @@ class MainWindow(QMainWindow):
         self.topPanel = self.pgwindow.addPlot(row=1, col=0)
         self.bottomPanel = self.pgwindow.addPlot(row=2, col=0)
         self.bottomPanel.setMouseEnabled(x=False, y=False)
+        self.topPanel.setMouseEnabled(y=False)
         self.topPanel.addLegend()
+        self.bottomPanel.addLegend()
         self.region = pg.LinearRegionItem()
         self.bottomPanel.addItem(self.region, ignoreBounds=True)
         self.region.sigRegionChanged.connect(self.updateRegion)
         self.topPanel.scene().sigMouseMoved.connect(self.mouseMoved)
+        self.topPanel.scene().sigMouseClicked.connect(self.mouseClicked)
         self.LineElems = {}
         self.LineElems["TopFlux"] = pg.PlotCurveItem(clear=True, pen="b", name="FLUX")
         self.LineElems["TopErr"] = pg.PlotCurveItem(clear=True, pen="r", name="ERROR")
         self.LineElems["BottomFlux"] = pg.PlotCurveItem(clear=True, pen="k", name="FLUX")
         self.LineElems["BottomErr"] = pg.PlotCurveItem(clear=True, pen="y", name="ERROR")
+        self.LineElems["BottomCont"] = pg.PlotCurveItem(clear=True, pen=pg.mkPen(color="r", width=1.5), name="CONT")
         self.topPanel.addItem(self.LineElems["TopFlux"])
         self.topPanel.addItem(self.LineElems["TopErr"])
         self.bottomPanel.addItem(self.LineElems["BottomFlux"])
         self.bottomPanel.addItem(self.LineElems["BottomErr"])
+        self.bottomPanel.addItem(self.LineElems["BottomCont"])
 
         # add EmissionLine
         self.EmissionLines = {}
         for key in defs.EMISSIONLINES:
-            self.EmissionLines[key] = EmissionLine(key, redshift=None, movable=True, pen=pg.mkPen(defs.EMISSIONSTYLE), label=key, labelOpts={"movable": True, "color": "k"})
+            self.EmissionLines[key] = EmissionLine(key, redshift=None, movable=True, pen=pg.mkPen(defs.EMISSIONLINES[key]["style"]), label=key, labelOpts={"movable": True, "color": "k"})
             self.EmissionLines[key].sigDragged.connect(self.updateEmission)
-            self.EmissionLines[key].setToolTip("<b>%s:</b> %.2f Angstorm" % (key, defs.EMISSIONLINES[key]))
-            self.EmissionLines[key].label.setColor('w')
+            self.EmissionLines[key].setToolTip("<b>%s:</b> %.2f Angstorm" % (key, defs.EMISSIONLINES[key]["lambda"]))
+            self.EmissionLines[key].setLabelVisible(False)
             self.topPanel.addItem(self.EmissionLines[key], ignoreBounds=True)
+        
+        # add ROI
+        self.roi = pg.PolyLineROI([], closed=False, pen=defs.roiPen)
+        self.roi.handlePen = defs.handlePen
+        self.topPanel.addItem(self.roi)
+        clearROI = self.topPanel.vb.menu.addAction("Clear")
+        clearROI.triggered.connect(self.clearROI)
+        plotROI = self.topPanel.vb.menu.addAction("Plot")
+        plotROI.triggered.connect(self.plotCont)
+
+        # sconnect signal
+        self.signal.connect(self.warning)
 
     def load_data(self):
         files, file_type = QFileDialog.getOpenFileNames(self, "Load Spectra", filter="Text Files (*.txt);;CSV Files (*.csv);;npz Files (*.npz)")
@@ -158,11 +203,14 @@ class MainWindow(QMainWindow):
             print("No Files Selected!!!")
         else:
             self.data = script.load(files, file_type)
-            self.result = [{"File": self.data[i]["file"], "BAL": False, "DLA": False, "Associated DLA": False, "Interesting": False, "comment": "", "z": self.data[i]["z"]} for i in range(len(self.data))]
+            self.result = [{"File": self.data[i]["file"], "BAL": False, "DLA": False, "Associated DLA": False, "Interesting": False, "comment": "", "z": self.data[i]["z"], "cont": ([], [])} for i in range(len(self.data))]
             self.plot()
 
+    def warning(self):
+        QMessageBox.information(self, "Notice", "Have reached the end of the dataset...", QMessageBox.Yes)
+
     def updateSmoothIndicator(self):
-        self.smoothIndicator.setText("Smooth: %2i pixel"%self.smoothSlider.value())
+        self.smoothIndicator.setText("Smooth: %2i pixel" % self.smoothSlider.value())
 
     def smooth(self):
         kernel_size = self.smoothSlider.value()
@@ -185,6 +233,7 @@ class MainWindow(QMainWindow):
         self.LineElems["TopErr"].setData(wav, err)
 
     def plot(self):
+        self.clearROI()
         maxwav, minwav = max(self.data[self.cursor]["wav"]), min(self.data[self.cursor]["wav"])
         fmax, fmin = max(self.data[self.cursor]["flux"]), min(self.data[self.cursor]["flux"])
         self.z = self.data[self.cursor]["z"]
@@ -193,7 +242,7 @@ class MainWindow(QMainWindow):
             self.EmissionLines[key].adjust(self.z)
             self.EmissionLines[key].label.setPosition(np.random.uniform(0, 1))
             self.EmissionLines[key].label.updatePosition()
-            self.EmissionLines[key].label.setColor('k')
+            self.EmissionLines[key].setLabelVisible(True)
         self.topPanel.setXRange(0.98*minwav, 1.02*maxwav, padding=0)
         self.topPanel.setYRange(0.98*fmin, 1.02*fmax, padding=0)
         self.bottomPanel.setXRange(0.98*minwav, 1.02*maxwav, padding=0)
@@ -202,6 +251,12 @@ class MainWindow(QMainWindow):
         self.LineElems["TopErr"].setData(self.data[self.cursor]["wav"], self.data[self.cursor]["error"])
         self.LineElems["BottomFlux"].setData(self.data[self.cursor]["wav"], self.data[self.cursor]["flux"])
         self.LineElems["BottomErr"].setData(self.data[self.cursor]["wav"], self.data[self.cursor]["error"])
+        xROI, yROI = self.result[self.cursor]["cont"][0], self.result[self.cursor]["cont"][1]
+        if xROI and yROI:
+            nx, ny = self.interp(xROI, yROI)
+            self.LineElems["BottomCont"].setData(nx, ny)
+            roiPos = list(map(lambda x: (x[0], x[1]), zip(xROI, yROI)))
+            self.roi.setPoints(roiPos)
         self.region.setBounds((minwav, maxwav))
         self.region.setRegion((minwav, maxwav))
 
@@ -211,7 +266,7 @@ class MainWindow(QMainWindow):
     
     def updateEmission(self, e):
         current_pos = e.getXPos()
-        self.z = current_pos/defs.EMISSIONLINES[e.line] - 1.
+        self.z = current_pos/defs.EMISSIONLINES[e.line]["lambda"] - 1.
         for key in defs.EMISSIONLINES:
             self.EmissionLines[key].adjust(self.z)
         return
@@ -226,16 +281,52 @@ class MainWindow(QMainWindow):
         else:
             self.statusBar.clearMessage()
 
+    def mouseClicked(self, evt):
+        if evt.double():
+            mousePos = evt.scenePos()
+            if self.topPanel.sceneBoundingRect().contains(mousePos):
+                mousePoint = self.topPanel.vb.mapSceneToView(mousePos)
+                x, y = mousePoint.x(), mousePoint.y()
+                info = {'name': None, 'type': defs.handleTyp, 'pos': (x, y)}
+                h = self.roi.addHandle(info=info)
+                if len(self.roi.handles) >= 2:
+                    h0 = self.roi.handles[-2]['item']
+                    self.roi.addSegment(h0, h)
+
+    def clearROI(self):
+        self.roi.clearPoints()
+        self.LineElems["BottomCont"].setData([], [])
+
+    def plotCont(self):
+        positions = self.roi.getState()['points']
+        positions.sort(key=(lambda p: p.x()))
+        x = list(map(lambda p: p.x(), positions))
+        y = list(map(lambda p: p.y(), positions))
+        if x and y:
+            nx, ny = self.interp(x, y)
+            self.LineElems["BottomCont"].setData(nx, ny)
+            self.result[self.cursor]["cont"] = (x, y)
+
+    def interp(self, x, y):
+        func = interp1d(x, y, kind=defs.interpTyp, assume_sorted=True)
+        nx = np.linspace(min(x), max(x), num=defs.pointsNum)
+        ny = func(nx)
+        return nx, ny
+
     def nextSpectra(self):
-        if len(self.data) != 0:
+        if len(self.data) > 0:
             self.result[self.cursor]["File"] = self.data[self.cursor]["file"]
             self.result[self.cursor]["BAL"] = self.checkbox1.isChecked()
             self.result[self.cursor]["DLA"] = self.checkbox2.isChecked()
             self.result[self.cursor]["Associated DLA"] = self.checkbox3.isChecked()
             self.result[self.cursor]["Interesting"] = self.checkbox4.isChecked()
-            self.result[self.cursor]["z"] = self.result[self.cursor]["z"] = self.z
+            self.result[self.cursor]["z"] = self.z
             self.result[self.cursor]["comment"] = self.textEdit.toPlainText()
-            self.cursor = (1 + self.cursor) % len(self.data)
+            if self.cursor + 1 < len(self.data):
+                self.cursor = (1 + self.cursor)
+            else:
+                self.signal.emit()
+                self.cursor = 0
             self.checkbox1.setChecked(self.result[self.cursor]["BAL"])
             self.checkbox2.setChecked(self.result[self.cursor]["DLA"])
             self.checkbox3.setChecked(self.result[self.cursor]["Associated DLA"])
@@ -254,9 +345,13 @@ class MainWindow(QMainWindow):
             self.result[self.cursor]["DLA"] = self.checkbox2.isChecked()
             self.result[self.cursor]["Associated DLA"] = self.checkbox3.isChecked()
             self.result[self.cursor]["Interesting"] = self.checkbox4.isChecked()
-            self.result[self.cursor]["z"] = self.result[self.cursor]["z"] = self.z
+            self.result[self.cursor]["z"] = self.z
             self.result[self.cursor]["comment"] = self.textEdit.toPlainText()
-            self.cursor = (self.cursor - 1) % len(self.data)
+            if self.cursor-1 >= 0:
+                self.cursor = self.cursor-1
+            else:
+                self.signal.emit()
+                self.cursor = len(self.data)-1
             self.checkbox1.setChecked(self.result[self.cursor]["BAL"])
             self.checkbox2.setChecked(self.result[self.cursor]["DLA"])
             self.checkbox3.setChecked(self.result[self.cursor]["Associated DLA"])
@@ -272,3 +367,19 @@ class MainWindow(QMainWindow):
         result_file, file_type = QFileDialog.getSaveFileName(self, 'Save Result', filter="CSV File (*.csv)")
         script.save(self.result, result_file, file_type)
 
+    def save_cont(self):
+        dir = QFileDialog.getExistingDirectory(self, caption="Data Product Dict")
+        script.save_cont(self.result, self.data, dir)
+
+    def enableTopMovable(self):
+        self.topPanel.setMouseEnabled(x=self.enableTopX.isChecked(), y=self.enableTopY.isChecked())
+
+    def setEmissionDisplay(self):
+        for key in defs.EMISSIONLINES:
+            self.EmissionLines[key].setVisible(self.displayEmissionLine.isChecked())
+            self.EmissionLines[key].setLabelVisible(self.displayEmissionLine.isChecked())
+        self.displayLabel.setChecked(self.displayEmissionLine.isChecked())
+
+    def setLabelDisplay(self):
+        for key in defs.EMISSIONLINES:
+            self.EmissionLines[key].setLabelVisible(self.displayLabel.isChecked())
