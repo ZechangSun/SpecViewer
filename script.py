@@ -26,6 +26,7 @@ def save(result, file, file_type):
 
 def load_npz_files(files):
     data = []
+    # note: spectra should not be in rest frame
     for file in files:
         spec = np.load(file)
         data.append({"file": file, "wav": spec["wav"], "flux": spec["flux"], "error": spec["err"], "z": float(spec["z"])})
@@ -34,4 +35,5 @@ def load_npz_files(files):
 
 def save_cont(result, data, dir):
     for idx, (r, d) in enumerate(zip(result, data)):
-        np.savez(os.path.join(dir, "spec-%03d.npz" % idx), name=d["file"], wav=d["wav"], flux=d["flux"], err=d["error"], z=d["z"], contX=r["cont"][0], contY=r["cont"][1])
+        name = os.path.split(d["file"])
+        np.savez(os.path.join(dir,  name[-1]), name=d["file"], wav=d["wav"]/(1+d["z"]), flux=d["flux"], err=d["error"], z=d["z"], contX=r["cont"][0], contY=r["cont"][1])

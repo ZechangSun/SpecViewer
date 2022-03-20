@@ -3,6 +3,7 @@ Mainwindow.py - Mainwindow for the GUI.
 Copyright 2021: Zechang Sun
 Email: sunzc18@mails.tsinghua.edu.cn
 """
+from turtle import right
 from PyQt5.QtCore import QCoreApplication, Qt, pyqtSignal
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QAction, QCheckBox, QFileDialog, QLabel, QMainWindow, QMessageBox, QPushButton, QSlider, QVBoxLayout, QWidget, QHBoxLayout, QTextEdit
@@ -35,6 +36,10 @@ class MainWindow(QMainWindow):
         self.openAction = QAction("Open")
         self.saveAction = QAction("Save")
         self.exitAction = QAction("Exit")
+        # set shortcut
+        self.openAction.setShortcut("Ctrl+O")
+        self.exitAction.setShortcut("Ctrl+E")
+        self.saveAction.setShortcut("Ctrl+S")
         self.saveDataProduct = QAction("Save Data Product")
         self.fileMenu.addAction(self.openAction)
         self.fileMenu.addAction(self.saveAction)
@@ -88,6 +93,9 @@ class MainWindow(QMainWindow):
         buttonLayout = QHBoxLayout()
         self.buttonWidget.setLayout(buttonLayout)
         self.textEdit = QTextEdit()
+        self.fileWidget = QWidget()
+        fileLayout = QHBoxLayout()
+        self.fileWidget.setLayout(fileLayout)
 
         # set slider
         self.smoothIndicator = QLabel("Smooth: 1 pixel")
@@ -104,7 +112,7 @@ class MainWindow(QMainWindow):
         self.noiseSlider.setMinimum(0)
         self.noiseSlider.setMaximum(50)
         self.noiseSlider.valueChanged.connect(self.noise_clip)
-    
+
         # add widget
         self.label = QLabel("Any Comment?")
         self.label.setAlignment(Qt.AlignCenter)
@@ -112,6 +120,7 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(self.checkbox2)
         right_layout.addWidget(self.checkbox3)
         right_layout.addWidget(self.checkbox4)
+        right_layout.addWidget(self.fileWidget)
         right_layout.addWidget(self.buttonWidget)
         right_layout.addWidget(self.smoothIndicator)
         right_layout.addWidget(self.smoothSlider)
@@ -129,6 +138,17 @@ class MainWindow(QMainWindow):
         self.nextButton.pressed.connect(self.nextSpectra)
         self.backButton.setShortcut("left")
         self.nextButton.setShortcut("right")
+
+        self.openButton = QPushButton("Open")
+        self.exitButton = QPushButton("Exit")
+        self.saveButton = QPushButton("Save")
+        fileLayout.addWidget(self.openButton)
+        fileLayout.addWidget(self.exitButton)
+        fileLayout.addWidget(self.saveButton)
+        self.openButton.pressed.connect(self.load_data)
+        self.exitButton.pressed.connect(QCoreApplication.quit)
+        self.saveButton.pressed.connect(self.save_result)
+
 
         # set pyqtgraph widget
         pg.setConfigOptions(background=defs.default_background)
@@ -168,7 +188,7 @@ class MainWindow(QMainWindow):
         self.LineElems["TopFlux"] = pg.PlotCurveItem(clear=True, pen="b", name="FLUX")
         self.LineElems["TopErr"] = pg.PlotCurveItem(clear=True, pen="r", name="ERROR")
         self.LineElems["BottomFlux"] = pg.PlotCurveItem(clear=True, pen="k", name="FLUX")
-        self.LineElems["BottomErr"] = pg.PlotCurveItem(clear=True, pen="y", name="ERROR")
+        self.LineElems["BottomErr"] = pg.PlotCurveItem(clear=True, pen="r", name="ERROR")
         self.LineElems["BottomCont"] = pg.PlotCurveItem(clear=True, pen=pg.mkPen(color="r", width=1.5), name="CONT")
         self.topPanel.addItem(self.LineElems["TopFlux"])
         self.topPanel.addItem(self.LineElems["TopErr"])
@@ -184,7 +204,7 @@ class MainWindow(QMainWindow):
             self.EmissionLines[key].setToolTip("<b>%s:</b> %.2f Angstorm" % (key, defs.EMISSIONLINES[key]["lambda"]))
             self.EmissionLines[key].setLabelVisible(False)
             self.topPanel.addItem(self.EmissionLines[key], ignoreBounds=True)
-        
+
         # add ROI
         self.roi = pg.PolyLineROI([], closed=False, pen=defs.roiPen)
         self.roi.handlePen = defs.handlePen
@@ -198,7 +218,7 @@ class MainWindow(QMainWindow):
         self.signal.connect(self.warning)
 
     def load_data(self):
-        files, file_type = QFileDialog.getOpenFileNames(self, "Load Spectra", filter="Text Files (*.txt);;CSV Files (*.csv);;npz Files (*.npz)")
+        files, file_type = QFileDialog.getOpenFileNames(self, "Load Spectra", filter="npz Files (*.npz);;Text Files (*.txt);;CSV Files (*.csv)")
         if len(files) == 0:
             print("No Files Selected!!!")
         else:
@@ -263,7 +283,7 @@ class MainWindow(QMainWindow):
     def updateRegion(self):
         minX, maxX = self.region.getRegion()
         self.topPanel.setXRange(minX, maxX, padding=0)
-    
+
     def updateEmission(self, e):
         current_pos = e.getXPos()
         self.z = current_pos/defs.EMISSIONLINES[e.line]["lambda"] - 1.
