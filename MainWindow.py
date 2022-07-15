@@ -99,6 +99,9 @@ class MainWindow(QMainWindow):
         self.fileWidget = QWidget()
         fileLayout = QHBoxLayout()
         self.fileWidget.setLayout(fileLayout)
+        self.setWidget = QWidget()
+        setLayout = QHBoxLayout()
+        self.setWidget.setLayout(setLayout)
 
         # set slider
         self.smoothIndicator = QLabel("Smooth: 1 pixel")
@@ -124,6 +127,7 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(self.checkbox3)
         right_layout.addWidget(self.checkbox4)
         right_layout.addWidget(self.fileWidget)
+        right_layout.addWidget(self.setWidget)
         right_layout.addWidget(self.buttonWidget)
         right_layout.addWidget(self.smoothIndicator)
         right_layout.addWidget(self.smoothSlider)
@@ -152,6 +156,9 @@ class MainWindow(QMainWindow):
         self.exitButton.pressed.connect(QCoreApplication.quit)
         self.saveButton.pressed.connect(self.save_result)
 
+        self.selectButton = QPushButton("Select Emission Line")
+        setLayout.addWidget(self.selectButton)
+        self.selectButton.pressed.connect(self.select_emission_line)
 
         # set pyqtgraph widget
         pg.setConfigOptions(background=defs.default_background)
