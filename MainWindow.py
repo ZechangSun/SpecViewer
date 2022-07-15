@@ -3,10 +3,10 @@ Mainwindow.py - Mainwindow for the GUI.
 Copyright 2021: Zechang Sun
 Email: sunzc18@mails.tsinghua.edu.cn
 """
-from turtle import right
 from PyQt5.QtCore import QCoreApplication, Qt, pyqtSignal
 from PyQt5.QtGui import QIcon
-from PyQt5.QtWidgets import QAction, QCheckBox, QFileDialog, QLabel, QMainWindow, QMessageBox, QPushButton, QSlider, QVBoxLayout, QWidget, QHBoxLayout, QTextEdit
+from PyQt5.QtWidgets import QAction, QCheckBox, QFileDialog, QLabel, QMainWindow, QMessageBox, QPushButton, QSlider, QVBoxLayout, QWidget, QHBoxLayout, QGridLayout, QTextEdit, QDialog
+from Widget import SelectWindow
 from EmissionLine import EmissionLine
 from scipy.interpolate import interp1d
 import pyqtgraph as pg
@@ -17,7 +17,7 @@ import script
 
 
 class MainWindow(QMainWindow):
-    
+
     # signal detect whether reach the end of the dataset
     signal = pyqtSignal()
 
@@ -29,7 +29,7 @@ class MainWindow(QMainWindow):
         self.width = 1500
         self.height = int(0.618*self.width)
         self.resize(self.width, self.height)
-        
+
         # menu bar setting
         self.menu = self.menuBar()
         self.fileMenu = self.menu.addMenu("Files")
@@ -60,6 +60,9 @@ class MainWindow(QMainWindow):
         self.settingMenu.addAction(self.displayLabel)
         self.displayEmissionLine.setChecked(True)
         self.displayLabel.setChecked(True)
+        self.selectEmissionLine = QAction("Select Emission Lines")
+        self.settingMenu.addAction(self.selectEmissionLine)
+        self.selectEmissionLine.triggered.connect(self.select_emission_line)
 
         # state  bar setting
         self.statusBar = self.statusBar()
@@ -204,6 +207,10 @@ class MainWindow(QMainWindow):
             self.EmissionLines[key].setToolTip("<b>%s:</b> %.2f Angstorm" % (key, defs.EMISSIONLINES[key]["lambda"]))
             self.EmissionLines[key].setLabelVisible(False)
             self.topPanel.addItem(self.EmissionLines[key], ignoreBounds=True)
+
+        self.EmissionLineVisibleState = {}
+        for key in defs.EMISSIONLINES:
+            self.EmissionLineVisibleState[key] = True
 
         # add ROI
         self.roi = pg.PolyLineROI([], closed=False, pen=defs.roiPen)
@@ -396,10 +403,23 @@ class MainWindow(QMainWindow):
 
     def setEmissionDisplay(self):
         for key in defs.EMISSIONLINES:
-            self.EmissionLines[key].setVisible(self.displayEmissionLine.isChecked())
-            self.EmissionLines[key].setLabelVisible(self.displayEmissionLine.isChecked())
+            self.EmissionLineVisibleState[key] = self.displayEmissionLine.isChecked()
+        self.updateEmissionDisplay()
         self.displayLabel.setChecked(self.displayEmissionLine.isChecked())
+
+    def updateEmissionDisplay(self):
+        for key in defs.EMISSIONLINES:
+            self.EmissionLines[key].setVisible(self.EmissionLineVisibleState[key])
+            self.EmissionLines[key].setLabelVisible(self.EmissionLineVisibleState[key])
 
     def setLabelDisplay(self):
         for key in defs.EMISSIONLINES:
             self.EmissionLines[key].setLabelVisible(self.displayLabel.isChecked())
+
+    def select_emission_line(self):
+        self.select_window = SelectWindow(self.EmissionLineVisibleState)
+        self.select_window.show()
+        self.select_window.exec_()
+        self.EmissionLineVisibleState = self.select_window.emission_line_states
+        del self.select_window
+        self.updateEmissionDisplay()
