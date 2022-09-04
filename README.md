@@ -17,7 +17,7 @@ You may need to modify `script.py` to adjust the data interface to the GUI.
 ## If Helpful
 ```
 @misc{ZechangSun2021,
-  author = {Zechang, Sun},
+  author = {Sun, Zechang},
   title = {SpecViewer},
   year = {2021},
   publisher = {GitHub},
